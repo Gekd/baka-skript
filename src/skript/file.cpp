@@ -4,10 +4,7 @@
 #include <fstream>
 #include <regex>
 
-
 #include "opencv2/opencv.hpp"
-
-
 
 // Finds the path/name of the files
 std::vector<std::string> dir(fs::path path) {
@@ -33,10 +30,9 @@ std::vector<std::string> dir(fs::path path) {
   return result;
 }
 
-
 // Returns list of frames where lat or long has changed compared to previous frames
-std::vector<FrameLatLongTime> gpsUpdateFrames(fs::path path) {
-  std::vector<FrameLatLongTime> result{};
+std::vector<FrameData> gpsUpdateFrames(fs::path path) {
+  std::vector<FrameData> result{};
 
   if (!fs::is_regular_file(path) || path.extension() != ".SRT") {
     return result;
@@ -55,18 +51,22 @@ std::vector<FrameLatLongTime> gpsUpdateFrames(fs::path path) {
   std::smatch matchFrame;
   std::regex regexpTime("[0-9]{2}\\:[0-9]{2}\\:[0-9]{2}\\.[0-9]{3}");
   std::smatch matchTime;
+  std::regex regexpAlt("rel_alt: (-?[0-9]+\\.[0-9]+) abs_alt: (-?[0-9]+\\.[0-9]+)");
+  std::smatch matchAlt;
 
   float previousLat = 0;
   float previousLong = 0;
   long frame = 0;
   std::string time = "";
+  float relAlt = 0;
+  float absAlt = 0;
 
 
   while (getline(is, row)) {
     std::regex_search(row, matchCoord, regexpCoord);
     std::regex_search(row, matchFrame, regexpFrame);
     std::regex_search(row, matchTime, regexpTime);
-
+    std::regex_search(row, matchAlt, regexpAlt);
 
     if (!matchFrame.empty()) {
       frame = stol(matchFrame[1]);
@@ -76,6 +76,11 @@ std::vector<FrameLatLongTime> gpsUpdateFrames(fs::path path) {
       time = matchTime[0];
     }
 
+    if (!matchAlt.empty()) {
+      relAlt = stof(matchAlt[1]);
+      absAlt = stof(matchAlt[2]);
+    }
+
     if (!matchCoord.empty()) {
       float lat = stof(matchCoord[1]);
       float lon = stof(matchCoord[2]);
@@ -83,8 +88,8 @@ std::vector<FrameLatLongTime> gpsUpdateFrames(fs::path path) {
       if (lat != previousLat || lon != previousLong) {
         previousLat = lat;
         previousLong = lon;
-        FrameLatLongTime frameLatLongTime = FrameLatLongTime{frame, lat, lon, time};
-        result.push_back(frameLatLongTime);
+        FrameData frameData = FrameData{frame, lat, lon, time, relAlt, absAlt};
+        result.push_back(frameData);
       }
     }    
   }
@@ -104,31 +109,27 @@ std::chrono::milliseconds toMs(std::string time) {
   return std::chrono::milliseconds{stoi(hours)*3600000 + stoi(minutes)*60000 + stoi(seconds)*1000 + stoi(ms)};
 }
 
-
-std::vector<FlltPair> match(std::vector<FrameLatLongTime> rgb, std::vector<FrameLatLongTime> thermal) {
+std::vector<FrameDataPair> match(std::vector<FrameData> rgb, std::vector<FrameData> thermal) {
   const std::chrono::milliseconds tolerance(31);
   
-  std::vector<FlltPair> result{};
+  std::vector<FrameDataPair> result{};
 
   for (long unsigned int indexT = 0; indexT < thermal.size(); indexT++) {
     for (long unsigned int indexRgb = 0; indexRgb < rgb.size(); indexRgb++) {
       if (abs((toMs(rgb.at(indexRgb).time) - toMs(thermal.at(indexT).time))) <= tolerance ) {
-        result.push_back(FlltPair{rgb.at(indexRgb), thermal.at(indexT)});
+        result.push_back(FrameDataPair{rgb.at(indexRgb), thermal.at(indexT)});
       }
     }
   }
   return result;
 }
 
-
-
-
 // saves given frames 
-void images(std::string path, bool rgb, bool thermal, std::vector<FlltPair> data, fs::path outputPath) {
+void images(std::string path, bool rgb, bool thermal, std::vector<FrameDataPair> data, fs::path outputPath) {
   if (!rgb && !thermal) return;
+
   cv::VideoCapture vCap;
   cv::VideoCapture tCap;
-
 
   if (rgb) {
     fs::path vSRTPath = fs::path(path + 'V' + ".SRT");
@@ -149,39 +150,48 @@ void images(std::string path, bool rgb, bool thermal, std::vector<FlltPair> data
       std::cout << "Can't open file: " << tMP4Path << '\n';
     }
   }
+  
+  std::ofstream jsonFile(outputPath / "data.json");
+  ordered_json root;
+
 
   if (!fs::exists(outputPath)) {
     fs::create_directory(outputPath);
 
     if (rgb) {
-      fs::create_directory(outputPath / "rgb");
+      fs::create_directory(outputPath / "/rgb");
+      root["rgb"] = json::array();
     }
     if (thermal) {
-      fs::create_directory(outputPath / "thermal");
+      fs::create_directory(outputPath / "/thermal");
+      root["thermal"] = json::array();
     }
   }
 
   cv::Mat frame;
 
-  for (long unsigned int i = 0; i < data.size(); i++) {
+  if (!fs::exists(outputPath / "data.json")) {
+    std::ofstream output(outputPath / "data.json");
+  }
 
-    fs::path lPath = fs::path(outputPath.string() + '/');
+  for (long unsigned int i = 0; i < 5; i++) { //data.size()
 
-    fs::create_directory(lPath);
-
+    fs::create_directory(outputPath);
 
     if (rgb) {
       vCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).first.frame);
       vCap >> frame;
-      cv::imwrite(lPath.string() + "rgb/" + std::to_string(i) + ".jpg", frame);
-
+      cv::imwrite(outputPath.string() + "/rgb/" + std::to_string(i) + ".jpg", frame);
+      root["rgb"].push_back(dataEntry( std::to_string(i)+".jpg" , data.at(i).first));
     }
 
     if (thermal) {
       tCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).second.frame);
       tCap >> frame;
-      cv::imwrite(lPath.string() + "thermal/" + std::to_string(i) + ".jpg", frame);
+      cv::imwrite(outputPath.string() + "/thermal/" + std::to_string(i) + ".jpg", frame);
+      root["thermal"].push_back(dataEntry(std::to_string(i)+".jpg", data.at(i).second));
     }
   }
-}
 
+  jsonFile << root.dump(2) << std::endl;
+}
