@@ -152,13 +152,20 @@ void images(std::string path, bool rgb, bool thermal, std::vector<FlltPair> data
 
   if (!fs::exists(outputPath)) {
     fs::create_directory(outputPath);
+
+    if (rgb) {
+      fs::create_directory(outputPath / "rgb");
+    }
+    if (thermal) {
+      fs::create_directory(outputPath / "thermal");
+    }
   }
 
   cv::Mat frame;
 
   for (long unsigned int i = 0; i < data.size(); i++) {
 
-    fs::path lPath = fs::path(outputPath.string() + '/' + std::to_string(i));
+    fs::path lPath = fs::path(outputPath.string() + '/');
 
     fs::create_directory(lPath);
 
@@ -166,14 +173,14 @@ void images(std::string path, bool rgb, bool thermal, std::vector<FlltPair> data
     if (rgb) {
       vCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).first.frame);
       vCap >> frame;
-      cv::imwrite(lPath.string() + "/rgb.jpg", frame);
+      cv::imwrite(lPath.string() + "rgb/" + std::to_string(i) + ".jpg", frame);
 
     }
 
     if (thermal) {
       tCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).second.frame);
       tCap >> frame;
-      cv::imwrite(lPath.string() + "/thermal.jpg", frame);
+      cv::imwrite(lPath.string() + "thermal/" + std::to_string(i) + ".jpg", frame);
     }
   }
 }
