@@ -7,4 +7,4 @@
 4. `cd /build`
 5. `cmake ..`
 6. `make`
-7. `./skript`
+7. `./skript 2`
