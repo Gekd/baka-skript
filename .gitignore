@@ -5,3 +5,4 @@ _data
 *.exe
 *.cache
 .vscode/
+/output

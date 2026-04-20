@@ -1,35 +1,42 @@
 #include <iostream>
 #include <filesystem>
-#include "skript/file.hpp"
+#include "file.hpp"
+#include "dir.hpp"
+#include <CLI/CLI.hpp>
 
-int main(int argc, char** argv)
-{
-  if (argc < 2) {
-    std::cout << "This program needs to have at least one param for timezone: +2" << '\n';
-    return 0;
-  }
+int main(int argc, char** argv) {
+  CLI::App app{"Skript"};
+
+  bool wildnav{false};
+  app.add_flag("-w,--wildnav", wildnav, "Use WILDNAV format");
+
+  bool thermal{false};
+  app.add_flag("-t,--thermal", thermal, "Output contains thermal images");
+
+  bool rgb{false};
+  app.add_flag("-r,--rgb", rgb, "Output contains RGB images");
+
+  int timezone{};
+  app.add_option("-z,--timezone", timezone, "Timezone offset")->required();
+
+  CLI11_PARSE(app, argc, argv);
+
+  if (wildnav) {
+    std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
   
-  fs::path path = fs::path("../data");
-  std::vector<std::string> file = dir(path);
+    fs::path path = fs::path("../data");
 
-  std::vector<CSVRow> csvData = readCsv(fs::path(path / "DJI_202511241027_002/DJIFlightRecord_2025-11-24_[10-29-04].csv"));
+    std::vector<DirInfo> dirs = dirStructure(path);
 
-  std::vector<FrameData> framesT = gpsUpdateFrames(fs::path(file[0] + "T.SRT"));
-  std::cout << "T: " << framesT.size() << '\n';
-  std::vector<FrameData> framesV = gpsUpdateFrames(fs::path(file[0] + "V.SRT"));
-  std::cout << "V: " << framesV.size() << '\n';
+    for (const auto &dir : dirs) {
+      std::cout << "Processing: " << dir.csvPath << '\n';
+      std::vector<CSVRow> csvData = readCsv(fs::path(dir.csvPath), timezone);
+      output(csvData, dir.fileGroups, fs::path("../output/" + dir.name), timezone);
+    }
+    std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+    std::cout << "Time difference = " << std::chrono::duration_cast<std::chrono::seconds>(end - begin).count() << "[s]" << std::endl;
 
-  std::vector<FrameDataPair> matchedImages = matchImages(framesV, framesT);
-
-  framesT.clear();
-  framesV.clear();
-
-  for (const auto& pair : matchedImages) {
-    framesV.push_back(pair.first);
-    framesT.push_back(pair.second);
   }
-
-  std::vector<FrameDataPairCSV> data = matchPairsToCSV(matchedImages, csvData, std::stoi(argv[1]));
-  std::cout << "Matched pairs: " << data.size() << '\n';
-  images(file[0], true, true, data, "output");
+  return 0;
 }
+

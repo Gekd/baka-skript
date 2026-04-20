@@ -1,34 +1,13 @@
 #include "file.hpp"
+#include "time.hpp"
 #include <algorithm>
 #include <iostream>
 #include <fstream>
 #include <regex>
-
+#include <cmath>
+#include "wildnav.hpp"
 #include "opencv2/opencv.hpp"
 
-// Finds the path/name of the files
-std::vector<std::string> dir(const fs::path &path) {
-  std::vector<std::string> result{};
-
-  for (const fs::path &dir : fs::directory_iterator(path)) {
-    if (!fs::is_directory(dir)) {
-      continue;
-    }
-
-    for (const fs::path &file : fs::directory_iterator(dir)) {
-      std::string pathExtension = file.extension().generic_string();
-      std::transform(pathExtension.begin(), pathExtension.end(), pathExtension.begin(), ::tolower);
-      
-      if (fs::is_regular_file(file) && (pathExtension == ".mp4" || pathExtension == ".srt")) {
-        std::string fileString = file.generic_string();
-        std::string name = fileString.substr(0, fileString.size()-5);
-        result.push_back(name);
-        break;
-      }
-    } 
-  }
-  return result;
-}
 
 // Returns list of frames where lat or long has changed compared to previous frames
 std::vector<FrameData> gpsUpdateFrames(const fs::path &path) {
@@ -54,13 +33,14 @@ std::vector<FrameData> gpsUpdateFrames(const fs::path &path) {
   std::regex regexpAlt("rel_alt: (-?[0-9]+\\.[0-9]+) abs_alt: (-?[0-9]+\\.[0-9]+)");
   std::smatch matchAlt;
 
-  float previousLat = 0;
-  float previousLong = 0;
+  double previousLat = 0;
+  double previousLong = 0;
   long frame = 0;
   std::string time = "";
   float relAlt = 0;
   float absAlt = 0;
 
+  const double latLongTolerance = 0.0000001;
 
   while (getline(is, row)) {
     std::regex_search(row, matchCoord, regexpCoord);
@@ -82,13 +62,13 @@ std::vector<FrameData> gpsUpdateFrames(const fs::path &path) {
     }
 
     if (!matchCoord.empty()) {
-      float lat = stof(matchCoord[1]);
-      float lon = stof(matchCoord[2]);
+      double lat = stod(matchCoord[1]);
+      double lon = stod(matchCoord[2]);
 
-      if (lat != previousLat || lon != previousLong) {
+      if (abs(lat - previousLat) > latLongTolerance || abs(lon - previousLong) > latLongTolerance) {
         previousLat = lat;
         previousLong = lon;
-        FrameData frameData = FrameData{frame, lat, lon, time, relAlt, absAlt};
+        FrameData frameData = FrameData{frame, lat, lon, time, toMs(time).count(), relAlt, absAlt};
         result.push_back(frameData);
       }
     }    
@@ -110,81 +90,55 @@ std::chrono::milliseconds toMs(std::string time) {
 }
 
 std::vector<FrameDataPair> matchImages(const std::vector<FrameData> &rgb, const std::vector<FrameData> &thermal) {
-  const std::chrono::milliseconds tolerance(500);
-  
-  std::vector<FrameDataPair> result{};
-  long unsigned int rgbIndex = 0;
+  const long toleranceMS = 500;
 
-  for (const auto &TFrame : thermal) {
-    auto bestTimeDifference = std::chrono::milliseconds::max();
+  bool rgbSmaller = rgb.size() <= thermal.size();
+  auto smallerVector = rgbSmaller ? &rgb : &thermal;
+  auto largerVector = rgbSmaller ? &thermal : &rgb;
+
+  std::vector<FrameDataPair> result{};
+  result.reserve(smallerVector->size());
+  
+  long unsigned int index = 0;
+
+  for (const auto &frame : *smallerVector) {
+    auto bestTimeDifference = std::numeric_limits<long>::max();
     const FrameData *bestMatch{};
 
-    for (;rgbIndex < rgb.size(); rgbIndex++) {
-      const FrameData &RGBFrame = rgb[rgbIndex];
-      auto timeDifference = abs(toMs(RGBFrame.time) - toMs(TFrame.time));
+    for (;index < largerVector->size(); index++) {
+      const FrameData &LFrame = (*largerVector)[index];
+      auto timeDifference = abs(frame.timeMs - LFrame.timeMs);
       if (timeDifference <= bestTimeDifference) {
         bestTimeDifference = timeDifference;
-        bestMatch = &RGBFrame;
+        bestMatch = &LFrame;
       } else {
         break;
       }
     }
 
-    if (rgbIndex > 0) {
-      rgbIndex--;
+    if (index > 0) {
+      index--;
     }
 
-    if (bestMatch && bestTimeDifference <= tolerance ) {
-      result.push_back(FrameDataPair{*bestMatch, TFrame});
+    if (bestMatch && bestTimeDifference <= toleranceMS ) {
+      if (rgbSmaller) {
+        result.push_back(FrameDataPair{frame, *bestMatch});
+      } else {
+        result.push_back(FrameDataPair{*bestMatch, frame});
+      }
     }
   }
   return result;
 }
 
-std::chrono::milliseconds csvTimeToMS(std::string time, int timezone) {
-  int hours{};
-  int minutes{};
-  int seconds{};
-  std::string msStr{};
-  std::string ampm{};
-  char colon{};
-  char dot{};
-
-  std::stringstream ss{time};
-
-  ss >> hours >> colon >> minutes >> colon >> seconds >> dot >> msStr >> ampm;
-  
-  int milliseconds = stoi(msStr);
-  if (msStr.size() == 2) {
-    milliseconds *= 10;
-  } else if (msStr.size() == 1) {
-    milliseconds *= 100;
-  } 
-
-  if (ampm == "PM" && hours != 12) {
-    hours += 12;
-  }
-  if (ampm == "AM" && hours == 12) {
-    hours = 0;
-  }
-  hours += timezone;
-  hours = (hours % 24 + 24) % 24;
-
-  return std::chrono::milliseconds{hours*3600000 + minutes*60000 + seconds*1000 + milliseconds};
-}
-
 bool compare(const FrameData &frameData, const CSVRow &csvRow, int timezone) {
-  double maxLatDifference = 0.00002;
-  double maxLongDifference = 0.00002;
-  std::chrono::milliseconds maxMSDifference{750};
+  const double maxDifference = 6.5;
+  std::chrono::milliseconds maxMSDifference{1000};
 
-  if (abs(frameData.lat - csvRow.latitude) > maxLatDifference) {
+  if (abs(haversine(frameData.lat, frameData.lon, csvRow.latitude, csvRow.longitude)) > maxDifference) {
     return false;
   } 
-  if (abs(frameData.lon - csvRow.longitude) > maxLongDifference) {
-    return false;
-  } 
-  if (abs(toMs(frameData.time) - csvTimeToMS(csvRow.updateTime, timezone)) > maxMSDifference) {
+  if (abs(frameData.timeMs - csvRow.updateTimeMs) > maxMSDifference.count()) {
     return false;
   }
   return true;
@@ -196,10 +150,8 @@ std::vector<FrameDataPairCSV> matchPairsToCSV(const std::vector<FrameDataPair> &
 
   for (const auto &framePair : frameDataPairs) {
     const FrameData &rgbFrame = framePair.first;
-    //const FrameData &thermalFrame = framePair.second;
-    
     for (; matchedCSVIndex < csvRows.size(); matchedCSVIndex++) {
-      if (compare(rgbFrame, csvRows[matchedCSVIndex], timezone)) { //&& compare(thermalFrame, csvRow, timezone)
+      if (compare(rgbFrame, csvRows[matchedCSVIndex], timezone)) {
         result.push_back(FrameDataPairCSV{framePair, csvRows[matchedCSVIndex]});
         break;
       }
@@ -208,224 +160,123 @@ std::vector<FrameDataPairCSV> matchPairsToCSV(const std::vector<FrameDataPair> &
   return result;
 }
 
+void upsertJson(ordered_json &json, const ordered_json &newEntry) {
+  for (auto &row : json) {
+    if (row["name"] == newEntry["name"]) {
+      row = newEntry;
+      return;
+    }
+  }
+  json.push_back(newEntry);
+}
+
 // saves given frames 
-void images(std::string path, bool rgb, bool thermal, const std::vector<FrameDataPairCSV> &data, fs::path outputPath) {
+void images(FileGroup fileGroup, bool rgb, bool thermal, const std::vector<FrameDataPairCSV> &data, fs::path outputPath, long startingIndex) {
   if (!rgb && !thermal) return;
 
   cv::VideoCapture vCap;
   cv::VideoCapture tCap;
 
   if (rgb) {
-    fs::path vSRTPath = fs::path(path + 'V' + ".SRT");
-    fs::path vMP4Path = fs::path(path + 'V' + ".MP4");
-    vCap = cv::VideoCapture(vMP4Path);
+    vCap = cv::VideoCapture(fileGroup.mp4VPath);
 
     if(!vCap.isOpened()) {
-      std::cout << "Can't open file: " << vMP4Path << '\n';
+      std::cout << "Can't open file: " << fileGroup.mp4VPath << '\n';
     }
   }
 
   if (thermal) {
-    fs::path tSRTPath = fs::path(path + 'T' + ".SRT");
-    fs::path tMP4Path = fs::path(path + 'T' + ".MP4");
-    tCap = cv::VideoCapture(tMP4Path);
+    tCap = cv::VideoCapture(fileGroup.mp4TPath);
 
     if(!tCap.isOpened()) {
-      std::cout << "Can't open file: " << tMP4Path << '\n';
+      std::cout << "Can't open file: " << fileGroup.mp4TPath << '\n';
     }
   }
   
-  std::ofstream jsonFile(outputPath / "data.json");
+  fs::path jsonPath = outputPath / "data.json";
   ordered_json root;
 
+
+  if (fs::exists(jsonPath) && fs::file_size(jsonPath) > 0) {
+    std::ifstream input(jsonPath);
+    if (input) {
+      input >> root;
+    }
+  }
+
   if (!fs::exists(outputPath)) {
-    fs::create_directory(outputPath);
+    fs::create_directories(outputPath);
   }
   
   if (rgb) {
     if (!fs::exists(outputPath / "rgb")) {
       fs::create_directory(outputPath / "rgb");
     }
-    root["rgb"] = json::array();
+    if (!root.contains("rgb")) {
+      root["rgb"] = json::array();
+    }
   }
   if (thermal) {
     if (!fs::exists(outputPath / "thermal")) {
       fs::create_directory(outputPath / "thermal");
     }
-    root["thermal"] = json::array();
+    if (!root.contains("thermal")) {
+      root["thermal"] = json::array();
+    }
   }
 
   cv::Mat frame;
 
-  if (!fs::exists(outputPath / "data.json")) {
-    std::ofstream output(outputPath / "data.json");
-  }
-
-  for (long unsigned int i = 0; i < data.size(); i++) {
-
-    fs::create_directory(outputPath);
-
+  for (long unsigned int i = 0; i < 10; i++) {  //data.size()
+    if (data.at(i).second.gimbalPitchDown != true) {
+      continue;
+    }
     if (rgb) {
       vCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).first.first.frame);
       vCap >> frame;
-      cv::imwrite(outputPath.string() + "/rgb/" + std::to_string(i) + ".jpg", frame);
-      root["rgb"].push_back(dataEntry(std::to_string(i)+".jpg", data.at(i).first.first, data.at(i).second));
+      //cv::imwrite(outputPath.string() + "/rgb/" + std::to_string(startingIndex + i) + ".jpg", frame);
+      upsertJson(root["rgb"], dataEntry(std::to_string(startingIndex + i)+".jpg", data.at(i).first.first, data.at(i).second));
     }
 
     if (thermal) {
       tCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).first.second.frame);
       tCap >> frame;
-      cv::imwrite(outputPath.string() + "/thermal/" + std::to_string(i) + ".jpg", frame);
-      root["thermal"].push_back(dataEntry(std::to_string(i)+".jpg", data.at(i).first.second, data.at(i).second));
+      //cv::imwrite(outputPath.string() + "/thermal/" + std::to_string(startingIndex + i) + ".jpg", frame);
+      upsertJson(root["thermal"], dataEntry(std::to_string(startingIndex + i)+".jpg", data.at(i).first.second, data.at(i).second));
     }
   }
-
+  std::ofstream jsonFile(jsonPath);
   jsonFile << root.dump(2) << std::endl;
 }
 
-std::vector<std::string> rowSplit(std::string row) {
-  std::vector<std::string> result{};
-  std::stringstream ss{row};
-
-  std::string cell = "";
-
-  while (getline(ss, cell, ',')) {
-    result.push_back(cell);
+void output(std::vector<CSVRow> csv, std::vector<FileGroup> fileGroups, fs::path outputPath, int timezone) {
+  //long startingIndex = 0;
+  for (const auto &fileGroup : fileGroups) {
+    std::cout << "Processing file group: " << fileGroup.mp4TPath << " and " << fileGroup.mp4VPath << '\n';
+    std::vector<FrameData> framesT = gpsUpdateFrames(fs::path(fileGroup.srtTPath));
+    std::cout << "T: " << framesT.size() << '\n';
+    std::vector<FrameData> framesV = gpsUpdateFrames(fs::path(fileGroup.srtVPath));
+    std::cout << "V: " << framesV.size() << '\n';
+    std::vector<FrameDataPairCSV> data = matchPairsToCSV(matchImages(framesV, framesT), csv, timezone);
+    std::cout << "Matched pairs: " << data.size() << '\n';
+    wildnavOutput(fileGroup, data, outputPath);
+    //images(fileGroup, true, true, data, outputPath, startingIndex);
+    //startingIndex += data.size();
   }
-  return result;
 }
 
-std::map<std::string, int> columnMap(std::string row) {
-  std::map<std::string, int> result{};
-  std::stringstream ss{row};
+// Formula used and modified for meters: https://www.geeksforgeeks.org/dsa/haversine-formula-to-find-distance-between-two-points-on-a-sphere/
+double haversine(double lat1, double lon1, double lat2, double lon2) {
+  // distance between latitudes and longitudes
+  double dLat = (lat2 - lat1) *M_PI / 180.0;
+  double dLon = (lon2 - lon1) * M_PI / 180.0;
+  // convert to radians
+  lat1 = (lat1) * M_PI / 180.0;
+  lat2 = (lat2) * M_PI / 180.0;
 
-  std::string cell = "";
-  int i = 0;
-
-  while (getline(ss, cell, ',')) {
-    result.insert({cell, i++});
-  }
-  return result;
-}
-
-std::vector<CSVRow> readCsv(fs::path path) {
-  std::vector<CSVRow> result{};
-  std::ifstream is;
-
-  is.open(path);
-  if (!is) return result;
-
-  std::string row = "";
-  std::string cell = "";
-
-  std::map<std::string, int> columns{};
-  
-  for (size_t i = 0; getline(is, row); i++) {
-    if (i == 0) continue;
-    if (i == 1) {
-      columns = columnMap(row);  
-      continue;
-    }
-
-    std::vector<std::string> rowElements = rowSplit(row);
-    CSVRow csvRow{};
-    
-    auto it = columns.find("CAMERA.isVideo");
-    if (it != columns.end() && rowElements[it->second] != "True") {
-      continue;    
-    }
-
-    it = columns.find("CUSTOM.updateTime [local]");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.updateTime = rowElements[it->second];    
-    }
-
-    it = columns.find("OSD.flyTime");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.flyTime = rowElements[it->second];    
-    }
-
-    it = columns.find("OSD.flyTime [s]");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.flyTimeS = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.latitude");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.latitude = std::stod(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.longitude");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.longitude = std::stod(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.height [ft]");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.heightFT = std::stoi(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.altitude [ft]");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.altitudeFT = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.pitch");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.pitch = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.roll");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.roll = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.yaw");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.yaw = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.yaw [360]");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.yaw360 = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("OSD.directionOfTravel");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.directionOfTravel = std::stof(rowElements[it->second]);
-    }
-     
-    it = columns.find("GIMBAL.mode");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.gimbalMode = rowElements[it->second];    
-    }
-
-    it = columns.find("GIMBAL.pitch");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.gimbalPitch = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("GIMBAL.roll");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.gimbalRoll = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("GIMBAL.yaw");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.gimbalYaw = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("GIMBAL.yaw [360]");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.gimbalYaw360 = std::stof(rowElements[it->second]);    
-    }
-
-    it = columns.find("CAMERA.isVideo");
-    if (it != columns.end() && rowElements[it->second] != "") {
-      csvRow.cameraIsVideo = rowElements[it->second];    
-    }
-
-    result.push_back(csvRow);
-  }
-  return result;
+  // apply formula
+  double a = pow(sin(dLat / 2), 2) + pow(sin(dLon / 2), 2) * cos(lat1) * cos(lat2);
+  double rad = 6371000;
+  double c = 2 * asin(sqrt(a));
+  return rad * c;
 }

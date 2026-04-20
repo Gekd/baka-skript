@@ -2,36 +2,34 @@ cmake_minimum_required(VERSION 3.30)
 project(skript)
 
 set(CMAKE_CXX_STANDARD 20)
-
 set(CMAKE_CXX_FLAGS "-Wall -Werror")
 
-find_package(OpenCV QUIET)
+find_package(OpenCV REQUIRED)
+find_package(CURL REQUIRED)
+find_package(PROJ REQUIRED)
 
-include(FetchContent)
+add_subdirectory(extern/CLI11)
+add_subdirectory(extern/json)
 
-FetchContent_Declare(
-    json 
-    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+set(SOURCES
+    src/main.cpp
+    src/skript/file.cpp
+    src/skript/time.cpp
+    src/skript/dir.cpp
+    src/skript/csv.cpp
+    src/skript/wildnav.cpp
 )
-FetchContent_MakeAvailable(json)
 
+add_executable(skript ${SOURCES})
 
-if(OpenCV_FOUND)
-    add_executable(skript src/main.cpp src/skript/file.cpp)
-    target_link_libraries(skript PRIVATE ${OpenCV_LIBS} nlohmann_json::nlohmann_json) 
-else()
-    FetchContent_Declare(
-        opencv
-        GIT_REPOSITORY https://github.com/opencv/opencv.git
-        GIT_TAG 4.13.0
-    )
-    FetchContent_MakeAvailable(opencv)
-    add_executable(skript src/main.cpp src/skript/file.cpp)
-    target_link_libraries(skript PRIVATE
-        opencv_core
-        opencv_imgproc
-        opencv_highgui
-        nlohmann_json::nlohmann_json
-    )
-    target_include_directories(skript PRIVATE ${opencv_SOURCE_DIR}/include)
-endif()
+target_include_directories(skript PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(skript PRIVATE
+    ${OpenCV_LIBS}
+    CURL::libcurl
+    PROJ::proj
+    CLI11::CLI11
+    nlohmann_json::nlohmann_json
+)
