@@ -164,11 +164,11 @@ std::vector<CSVRow> readCsv(fs::path path, int timezone) {
   return result;
 }
 
-CSVRowIndex columnMap(std::string row) {
+CSVRowIndex columnMap(const std::string &row) {
   CSVRowIndex result{};
   std::stringstream ss{row};
 
-  std::string cell = "";
+  std::string cell{};
   int i = 0;
 
   while (getline(ss, cell, ',')) {
@@ -182,11 +182,11 @@ CSVRowIndex columnMap(std::string row) {
 }
 
 
-std::vector<std::string> rowSplit(std::string row) {
+std::vector<std::string> rowSplit(const std::string &row) {
   std::vector<std::string> result{};
   std::stringstream ss{row};
 
-  std::string cell = "";
+  std::string cell{};
 
   while (getline(ss, cell, ',')) {
     result.push_back(cell);
@@ -194,7 +194,7 @@ std::vector<std::string> rowSplit(std::string row) {
   return result;
 }
 
-std::chrono::seconds csvNameToS(std::string name) {
+std::chrono::seconds csvNameToS(const std::string &name) {
   std::string timeStr = name.substr(name.size()-13, 8);
   std::string hours = timeStr.substr(0,2); 
   std::string minutes = timeStr.substr(3,2); 

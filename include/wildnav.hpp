@@ -6,7 +6,7 @@
 #include "proj/coordinateoperation.hpp"
 #include "proj/crs.hpp"
 #include "proj/io.hpp"
-#include "proj/util.hpp" // for nn_dynamic_pointer_cast
+#include "proj/util.hpp" 
 
 
 const std::string WILDNAV_QUERY_CSV_NAME = "photo_metadata.csv";

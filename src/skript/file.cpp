@@ -231,17 +231,27 @@ void images(FileGroup fileGroup, bool rgb, bool thermal, const std::vector<Frame
     if (data.at(i).second.gimbalPitchDown != true) {
       continue;
     }
+
+    int currentRGBFrame = 0;
+    int currentThermalFrame = 0;    
+    
     if (rgb) {
-      vCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).first.first.frame);
-      vCap >> frame;
-      //cv::imwrite(outputPath.string() + "/rgb/" + std::to_string(startingIndex + i) + ".jpg", frame);
+      int targetFrame = data[i].first.first.frame;
+
+      while (currentRGBFrame < targetFrame) {
+        vCap >> frame;
+        currentRGBFrame++;
+      }
       upsertJson(root["rgb"], dataEntry(std::to_string(startingIndex + i)+".jpg", data.at(i).first.first, data.at(i).second));
     }
 
     if (thermal) {
-      tCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).first.second.frame);
-      tCap >> frame;
-      //cv::imwrite(outputPath.string() + "/thermal/" + std::to_string(startingIndex + i) + ".jpg", frame);
+      int targetFrame = data[i].first.second.frame;
+
+      while (currentThermalFrame < targetFrame) {
+        tCap >> frame;
+        currentThermalFrame++;
+      }
       upsertJson(root["thermal"], dataEntry(std::to_string(startingIndex + i)+".jpg", data.at(i).first.second, data.at(i).second));
     }
   }
@@ -249,20 +259,18 @@ void images(FileGroup fileGroup, bool rgb, bool thermal, const std::vector<Frame
   jsonFile << root.dump(2) << std::endl;
 }
 
-void output(std::vector<CSVRow> csv, std::vector<FileGroup> fileGroups, fs::path outputPath, int timezone) {
+void output(std::vector<CSVRow> &csv, FileGroup fileGroup, const fs::path outputPath, int timezone) {
   //long startingIndex = 0;
-  for (const auto &fileGroup : fileGroups) {
-    std::cout << "Processing file group: " << fileGroup.mp4TPath << " and " << fileGroup.mp4VPath << '\n';
-    std::vector<FrameData> framesT = gpsUpdateFrames(fs::path(fileGroup.srtTPath));
-    std::cout << "T: " << framesT.size() << '\n';
-    std::vector<FrameData> framesV = gpsUpdateFrames(fs::path(fileGroup.srtVPath));
-    std::cout << "V: " << framesV.size() << '\n';
-    std::vector<FrameDataPairCSV> data = matchPairsToCSV(matchImages(framesV, framesT), csv, timezone);
-    std::cout << "Matched pairs: " << data.size() << '\n';
-    wildnavOutput(fileGroup, data, outputPath);
+  std::cout << "Processing file group: " << fileGroup.mp4TPath << " and " << fileGroup.mp4VPath << '\n';
+  std::vector<FrameData> framesT = gpsUpdateFrames(fs::path(fileGroup.srtTPath));
+  std::cout << "T: " << framesT.size() << '\n';
+  std::vector<FrameData> framesV = gpsUpdateFrames(fs::path(fileGroup.srtVPath));
+  std::cout << "V: " << framesV.size() << '\n';
+  std::vector<FrameDataPairCSV> data = matchPairsToCSV(matchImages(framesV, framesT), csv, timezone);
+  std::cout << "Matched pairs: " << data.size() << '\n';
+  wildnavOutput(fileGroup, data, outputPath);
     //images(fileGroup, true, true, data, outputPath, startingIndex);
     //startingIndex += data.size();
-  }
 }
 
 // Formula used and modified for meters: https://www.geeksforgeeks.org/dsa/haversine-formula-to-find-distance-between-two-points-on-a-sphere/

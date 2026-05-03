@@ -1,5 +1,9 @@
 # baka-skript
 
+By default mono uses 4K camera imagery
+Stereo mode assigns first camera as 4K camera and second camera as FHD camera.
+
+
 Wildnav: https://github.com/TIERS/wildnav
 
 ## Dependencies

@@ -2,28 +2,6 @@
 #include <curl/curl.h>
 #include "wildnav.hpp"
 
-
-/*
-wildnav format(RGB only)(https://github.com/TIERS/wildnav/tree/main/assets):
-assets/
-  query/
-    photo_metadata.csv(Filename, Latitude, Longitude, Altitude, Gimball_Roll,	Gimball_Yaw, Gimball_Pitch, Flight_Roll, Flight_Yaw, Flight_Pitch)
-    rgb_1.jpg
-    rgb_2.jpg
-    ...
-  map/
-    map.csv(Filename, Top_left_lat, Top_left_lon, Bottom_right_lat, Bottom_right_long)
-    sat_map_00.png
-
-
-
-
-
-TODO:
-- Testi kas wildnav töötab
-- Command line parameters
-*/
-
 void minMaxLatLong(double centerLat, double centerLong, double &minX, double &minY, double &maxX, double &maxY) {
   
   double x{};
@@ -152,18 +130,24 @@ void wildnavOutput(FileGroup fileGroup, const std::vector<FrameDataPairCSV> &dat
   csvFileMap << "Filename,Top_left_lat,Top_left_lon,Bottom_right_lat,Bottom_right_long\n";
 
   cv::Mat frame;
+  int currentFrame = 0;
 
-  for (long unsigned int i = 1; i <= 10; i++) {  //data.size()
+  for (long unsigned int i = 0; i < 200; i++) { //data.size()
+
+    int targetFrame = data.at(i).first.first.frame;
+
+    while (currentFrame < targetFrame) {
+      vCap >> frame;
+      currentFrame++;
+    }
+
     // If gimball is not pointing down
     if (data.at(i).second.gimbalPitch > -87.5) {
       continue;
     }
 
-
-    vCap.set(cv::CAP_PROP_POS_FRAMES, data.at(i).first.first.frame);
-    vCap >> frame;
-    std::string filenameQuery = WILDNAV_IMAGE_PREFIX + std::to_string(i) + ".jpg";
-    std::string filenameMap = "sat_map_" + std::to_string(i) + ".jpg";
+    std::string filenameQuery = WILDNAV_IMAGE_PREFIX + std::to_string(i+1) + ".jpg";
+    std::string filenameMap = "sat_map_" + std::to_string(i+1) + ".jpg";
 
     double minX{};
     double minY{};

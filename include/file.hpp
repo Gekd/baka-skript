@@ -14,6 +14,6 @@ void upsertJson(ordered_json &json, const ordered_json &newEntry);
 
 void images(FileGroup fileGroup, bool rgb, bool thermal, const std::vector<FrameDataPairCSV> &data, fs::path outputPath, long startingIndex);
 
-void output(std::vector<CSVRow> csv, std::vector<FileGroup> fileGroups, fs::path outputPath, int timezone);
+void output(std::vector<CSVRow> &csv, FileGroup fileGroup, const fs::path outputPath, int timezone);
 
 double haversine(double lat1, double lon1, double lat2, double lon2);

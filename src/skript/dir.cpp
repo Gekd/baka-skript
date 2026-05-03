@@ -29,60 +29,52 @@ std::vector<DirInfo> dirStructure(fs::path dirPath) {
   std::vector<DirInfo> result{};
   std::vector<fs::path> csvs{};
 
-  for (const fs::path &path : fs::directory_iterator(dirPath)) {
-    if (!fs::is_directory(path)) {
-      if (path.extension() == ".csv") {
-        csvs.push_back(path);
+  for (const auto &dir : fs::directory_iterator(dirPath)) {
+    const auto &dirPath = dir.path();
+    if (!dir.is_directory()) {
+      if (dirPath.extension() == ".csv") {
+        csvs.push_back(dir.path());
       }
     } else {
       DirInfo dirInfo{};
-      dirInfo.path = path;
-      dirInfo.name = path.filename().generic_string();
+      dirInfo.path = dirPath;
+      dirInfo.name = dirPath.filename().string();
       dirInfo.fileGroups = std::vector<FileGroup>{};
 
       std::unordered_map <std::string, FileGroup> fileGroup{};
 
-      for (const fs::path &file : fs::directory_iterator(path)) {
-        std::string fileExtension = file.extension().generic_string();
-        std::transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::tolower);
-        
-        if (fs::is_regular_file(file) && (fileExtension == ".srt" || fileExtension == ".mp4")) {
-          std::string fileNameWithExtension = file.filename().generic_string();
-          std::string fileKey = fileNameWithExtension.substr(0, fileNameWithExtension.size()-7);
+      for (const auto &file : fs::directory_iterator(dir.path())) {
+        if (!file.is_regular_file()) {
+          continue;
+        }
 
-          // If the file group already exists, add the file to it, otherwise create a new file group
-          if (fileGroup.find(fileKey) != fileGroup.end()) {
-            FileGroup group = fileGroup[fileKey];
-            if (fileExtension == ".srt") {
-              if (fileNameWithExtension.find("_T") != std::string::npos) {
-                group.srtTPath = file;
-              } else if (fileNameWithExtension.find("_V") != std::string::npos) {
-                group.srtVPath = file;
-              }
-            } else if (fileExtension == ".mp4") {
-              if (fileNameWithExtension.find("_T") != std::string::npos) {
-                group.mp4TPath = file;
-              } else if (fileNameWithExtension.find("_V") != std::string::npos) {
-                group.mp4VPath = file;
-              }
-            }
-            fileGroup[fileKey] = group;
-          } else {
-            FileGroup group{};
-            if (fileExtension == ".srt") {
-              if (fileNameWithExtension.find("_T") != std::string::npos) {
-                group.srtTPath = file;
-              } else if (fileNameWithExtension.find("_V") != std::string::npos) {
-                group.srtVPath = file;
-              }
-            } else if (fileExtension == ".mp4") {
-              if (fileNameWithExtension.find("_T") != std::string::npos) {
-                group.mp4TPath = file;
-              } else if (fileNameWithExtension.find("_V") != std::string::npos) {
-                group.mp4VPath = file;
-              }
-            }
-            fileGroup[fileKey] = group;
+        const auto &filePath = file.path();
+        const auto fileExtension = filePath.extension().generic_string();
+
+        if (fileExtension != ".mp4" && fileExtension != ".srt" && fileExtension != ".MP4" && fileExtension != ".SRT") {
+          continue;
+        }
+
+        const auto fileNameWithoutExtension = filePath.stem().generic_string();
+
+        bool thermalFile = fileNameWithoutExtension.ends_with("_T");
+        bool rgbFile = fileNameWithoutExtension.ends_with("_V");
+
+        std::string fileKey = fileNameWithoutExtension.substr(0, fileNameWithoutExtension.size() - 2);
+
+        // If the file group already exists, add the file to it, otherwise create a new file group
+        auto &group = fileGroup[fileKey];
+        if (fileExtension == ".srt" || fileExtension == ".SRT") {
+          if (thermalFile) {
+            group.srtTPath = file;
+          } else if (rgbFile) {
+            group.srtVPath = file;
+          }
+        } else if (fileExtension == ".mp4" || fileExtension == ".MP4") {
+          if (thermalFile) {
+            group.mp4TPath = file;
+          } else if (rgbFile) {
+            group.mp4VPath = file;
           }
         }
       }
