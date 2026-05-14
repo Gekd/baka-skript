@@ -1,8 +1,8 @@
 #pragma once
 #include "types.hpp"
-#include "time.hpp"
+#include "timeparse.hpp"
 
-std::vector<CSVRow> readCsv(fs::path path, int timezone);
+std::vector<CSVRow> readCsv(fs::path path);
 
 CSVRowIndex columnMap(const std::string &row);
 

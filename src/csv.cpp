@@ -1,8 +1,9 @@
 #include "csv.hpp"
 #include <fstream>
+#include <iostream>
 
 
-std::vector<CSVRow> readCsv(fs::path path, int timezone) {
+std::vector<CSVRow> readCsv(fs::path path) {
   std::vector<CSVRow> result{};
   std::ifstream is;
 
@@ -46,11 +47,13 @@ std::vector<CSVRow> readCsv(fs::path path, int timezone) {
       csvRow.gimbalPitch = gimbalPitchF;
     }
 
-    if (columnIndexes.updateTime != -1) {
+    if (columnIndexes.updateTime != -1 && columnIndexes.date != -1) {
       const auto &updateTimeStr = rowElements[columnIndexes.updateTime];
-      if (!updateTimeStr.empty()) {
+      const auto &dateStr = rowElements[columnIndexes.date];
+
+      if (!updateTimeStr.empty() && !dateStr.empty()) {
         csvRow.updateTime = updateTimeStr;    
-        csvRow.updateTimeMs = csvTimeToMS(updateTimeStr, timezone).count();
+        csvRow.dateTimeMS = csvTimeToMS(updateTimeStr, dateStr);
       }
     }
 

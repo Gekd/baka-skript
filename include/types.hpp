@@ -12,14 +12,15 @@ struct FrameData {
   double lat;
   double lon;
   std::string time;
-  long timeMs = -1;
+  std::chrono::milliseconds timeMS{-1};
   float rel_alt;
   float abs_alt;
 };
 
 struct CSVRow {
+  std::string date;
   std::string updateTime;
-  long updateTimeMs = -1;
+  std::chrono::milliseconds dateTimeMS;
   std::string flyTime;
   float flyTimeS;
   double latitude;
@@ -41,6 +42,7 @@ struct CSVRow {
 };
 
 struct CSVRowIndex {
+  int date = -1;
   int updateTime = -1;
   int flyTime = -1;
   int flyTimeS = -1;
@@ -61,10 +63,8 @@ struct CSVRowIndex {
   int cameraIsVideo = -1;
 };
 
-const std::string csvCellValues[]{"CUSTOM.updateTime [local]", "OSD.flyTime", "OSD.flyTime [s]", "OSD.latitude", "OSD.longitude", "OSD.height [ft]", "OSD.altitude [ft]", "OSD.pitch", "OSD.roll", "OSD.yaw", "OSD.yaw [360]", "OSD.directionOfTravel", "GIMBAL.mode", "GIMBAL.pitch", "GIMBAL.roll", "GIMBAL.yaw", "GIMBAL.yaw [360]", "CAMERA.isVideo"};
-
-
 const std::unordered_map<std::string, int CSVRowIndex::*> csvLookup {
+  {"CUSTOM.date [local]", &CSVRowIndex::date},
   {"CUSTOM.updateTime [local]", &CSVRowIndex::updateTime},
   {"OSD.flyTime", &CSVRowIndex::flyTime},
   {"OSD.flyTime [s]", &CSVRowIndex::flyTimeS},
@@ -121,6 +121,7 @@ ordered_json dataEntry(auto name, FrameData frame, CSVRow row) {
 
 
 struct FileGroup {
+  std::string parentDirName;
   fs::path mp4TPath;
   fs::path mp4VPath;
   fs::path srtTPath;
@@ -133,3 +134,5 @@ struct DirInfo {
   fs::path csvPath;
   std::vector<FileGroup> fileGroups;
 };
+
+const std::string MAP_CACHE_DIR_NAME = "map_cache";

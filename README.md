@@ -1,27 +1,62 @@
-# baka-skript
+# EstUAV
 
-By default mono uses 4K camera imagery
-Stereo mode assigns first camera as 4K camera and second camera as FHD camera.
+Tooling for processing DJI Mavic 3T drone flight data into datasets suitable for visual geolocation pipelines such as [WILDNAV](https://github.com/TIERS/wildnav).
 
+Raw datasets are published on Hugging Face: <https://huggingface.co/datasets/Gekd/EstUAV>.
 
-Wildnav: https://github.com/TIERS/wildnav
+## Dataset Notes
+
+The Hugging Face dataset ships two subsets. Use the matching `--timezone` value when processing each:
+
+| Hugging Face subset | Required `--timezone` |
+| ------------------- | --------------------- |
+| `snow/`             | `2`                   |
+| `no_snow/`          | `3`                   |
 
 ## Dependencies
 
-Following system libraries are required:
-1. Libcurl, for installing https://curl.se/libcurl/
-2. OpenCV, for installing https://docs.opencv.org/4.x/df/d65/tutorial_table_of_content_introduction.html
-3. PROJ, for installing https://proj.org/en/stable/install.html#install
+System libraries (install via your package manager or the upstream guides):
 
-## Steps
-1. `mkdir /data`
-2. Add all the directories from Mavic 3T drone /DCIM to /data
+- [libcurl](https://curl.se/libcurl/)
+- [OpenCV](https://docs.opencv.org/4.x/df/d65/tutorial_table_of_content_introduction.html)
+- [PROJ](https://proj.org/en/stable/install.html#install)
 
-DJI log files are stored in remote controller and are encrypted from version 13 and above. To extract '.csv' files from CLI you need to have access to DJI API key, if not then online log viewers can help.
+Vendored dependencies (included under `extern/`): CLI11 and nlohmann/json.
 
-3. Add extracted .csv files to /data directory 
-4. `mkdir /build`
-5. `cd /build`
-6. `cmake ..`
-7. `make`
-8. `./skript --timezone 2 -w`
+## Data Layout
+
+Place input data under `data/` at the repository root:
+
+1. Copy the contents of the Mavic 3T's `/DCIM` directory into `data/`.
+2. Add the flight `.csv` log file(s) to `data/`.
+
+> DJI log files are stored on the remote controller and are encrypted on firmware v13 and above. Extracting `.csv` files from the CLI requires a DJI API key; otherwise an online log viewer can be used.
+
+Processed results are written to `output/`.
+
+## Build
+
+```sh
+mkdir build && cd build
+cmake ..
+make
+```
+
+## Usage
+
+```sh
+./estuav --timezone <offset> [flags]
+```
+
+| Flag               | Description                       |
+| ------------------ | --------------------------------- |
+| `-z, --timezone N` | Timezone offset (required)        |
+| `-w, --wildnav`    | Produce WILDNAV-formatted output  |
+| `-r, --rgb`        | Include RGB images in output      |
+| `-t, --thermal`    | Include thermal images in output  |
+
+### Example
+
+```sh
+./estuav -w -z 3 -r -t
+```

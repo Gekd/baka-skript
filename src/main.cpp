@@ -26,21 +26,19 @@ int main(int argc, char** argv) {
   if (wildnav) {  
     fs::path path = fs::path("../data");
 
-    std::vector<DirInfo> dirs = dirStructure(path);
+    std::vector<DirInfo> dirs = scanDir(path);
 
-    int maximumThreads = std::thread::hardware_concurrency();
+    int maximumThreads = std::thread::hardware_concurrency() - 1;
     ThreadPool pool(maximumThreads);
 
     for (const auto &dir : dirs) {        
-      auto csvData = std::make_shared<std::vector<CSVRow>>(readCsv(dir.csvPath, timezone));
+      auto csvData = std::make_shared<std::vector<CSVRow>>(readCsv(dir.csvPath));
 
       for (const auto &fileGroup : dir.fileGroups) {
-    
-        pool.enqueue([csvData, fileGroup, dir, timezone](){
-          output(*csvData, fileGroup, fs::path("../output/" + dir.name), timezone);
+        pool.enqueue([csvData, fileGroup, dir, timezone, rgb, thermal](){
+            output(*csvData, fileGroup, fs::path("../output/" + dir.name), timezone, rgb, thermal);
         });
       }
-    
     }
   }
   return 0;
